@@ -2,7 +2,7 @@ numpy
 scipy
 scikit-learn
 scikit-image
-opencv-python
+opencv-contrib-python
 pillow
 pandas
 tqdm
