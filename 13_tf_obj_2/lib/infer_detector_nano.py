@@ -35,8 +35,11 @@ class Infer():
                
         start = time.time();
         image_np = self.load_image_into_numpy_array(image_path)
+        print(image_np.shape)
         input_tensor = tf.convert_to_tensor(image_np)
+        print(input_tensor.shape)
         input_tensor = input_tensor[tf.newaxis, ...]
+        print(input_tensor.shape)
         end = time.time();
         print("Image loading and preproc time - {}".format(end-start));
         
@@ -58,10 +61,9 @@ class Infer():
         return self.system_dict["scores"], self.system_dict["boxes"], self.system_dict["labels"]
         
         
-    def draw_on_image(self, bbox_thickness=3, text_size=1, text_thickness=2):
+    def draw_on_image(self,img, bbox_thickness=3, text_size=1, text_thickness=2):
         import cv2
-        image_path = self.system_dict["image_path"];
-        img = cv2.imread(image_path);
+        img = img
         h, w, c = img.shape
         thresh = self.system_dict["thresh"];
         
@@ -83,7 +85,7 @@ class Infer():
                 cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), thickness=bbox_thickness)
                 cv2.putText(img, label, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 225), text_thickness)
 
-        cv2.imwrite('output.jpg', img)   
+        return img  
 
 
     def benchmark_for_speed(self, image_path):
@@ -93,8 +95,10 @@ class Infer():
         iter_times = [];
                
         image_np = self.load_image_into_numpy_array(image_path)
+        
         input_tensor = tf.convert_to_tensor(image_np)
         input_tensor = input_tensor[tf.newaxis, ...]
+        
         
         detections = graph_func(input_tensor)
 
@@ -122,13 +126,40 @@ class Infer():
         print('latency_mean  = {}'.format(np.mean(iter_times) * 1000))
         print('latency_median = {}'.format(np.median(iter_times) * 1000))
         print('latency_min = {}'.format(np.min(iter_times) * 1000))
-
         
-        
-        
-        
-        
-        
-        
-        
-        
+    def infer_on_video(self, video_path, thresh=0.5):
+        import cv2
+        import numpy as np
+        self.system_dict["thresh"] = thresh;
+        graph_func = self.system_dict["saved_model_loaded"].signatures[self.system_dict["signature_keys"][0]]
+        cap = cv2.VideoCapture(video_path)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        prev_frame_time = 0
+        new_frame_time = 0
+        while(True):
+              ret, frame = cap.read()
+              new_frame_time = time.time()
+              input_tensor = tf.convert_to_tensor(frame)
+              input_tensor = input_tensor[tf.newaxis, ...]
+              detections = graph_func(input_tensor)
+              num_detections = int(detections.pop('num_detections'))
+              detections = {key: value[0, :num_detections].numpy()
+                               for key, value in detections.items()}
+              detections['num_detections'] = num_detections
+              # detection_classes should be ints.
+              self.system_dict["labels"] = detections['detection_classes'] = detections['detection_classes'].astype(np.int64)
+              self.system_dict["boxes"] = detections['detection_boxes']
+              self.system_dict["scores"] = detections['detection_scores']
+              img = self.draw_on_image(frame)
+              # Display the resulting frame
+              fps = 1/(new_frame_time-prev_frame_time)
+              prev_frame_time = new_frame_time
+              fps = str(fps)
+              cv2.putText(img, fps, (7, 70), font, 1, (0, 0, 255), 3, cv2.LINE_AA)
+              cv2.imshow('frame',img)
+              if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+              # When everything done, release the capture
+        cap.release()
+        cv2.destroyAllWindows()
+       
